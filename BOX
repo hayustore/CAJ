@@ -1,0 +1,842 @@
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RS               = game:GetService("ReplicatedStorage")
+local CoreGui          = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- ============================================================
+-- DATA BOX
+-- ============================================================
+local BOX_IDS = {
+    BALI          = 16000118,
+    THANKSGIVING  = 16000116,
+    MOUNTRUSHMORE = 16000117,
+    SYDNEY        = 16000115,
+    HALLOWEEN     = 16000112,
+    LUXURY        = 16000114,
+    SPOOKY        = 00000,
+    TAIWAN        = 16000111,
+    ADMIN         = 16000110,
+    SHANGHAI      = 16000109,
+    ATLANTIS      = 16000108,
+    BRAZIL        = 16000107,
+    ALIEN         = 16000106,
+    SPACE         = 16000104,
+    TORONTO       = 16000103,
+    ANGEL         = 16000102,
+    DEMON         = 16000101,
+    EVEREST       = 16000100,
+    TITAN         = 00000,
+    ["70MVISIT"]  = 00000,
+    STPATRICKS    = 00000,
+    FALLENSTAR    = 16000098,
+    GIANT         = 16000001,
+    PIXEL         = 16000008,
+    IRONMAN       = 16000105,
+    ["40MVISITS"] = 00000,
+    INDIA         = 16000113,
+}
+
+-- ============================================================
+-- JUMLAH OPEN PER BOX (AUTO OPEN)
+-- ============================================================
+local BOX_REPEAT = {
+    THANKSGIVING = 3,
+    HALLOWEEN    = 6,
+    SPACE        = 4,
+}
+
+local ALL_BOXES = {
+    "BALI","THANKSGIVING","MOUNTRUSHMORE","SYDNEY","HALLOWEEN",
+    "LUXURY","SPOOKY","TAIWAN","ADMIN","SHANGHAI","ATLANTIS",
+    "BRAZIL","ALIEN","SPACE","TORONTO","ANGEL",
+    "DEMON","EVEREST","TITAN","70MVISIT","STPATRICKS",
+    "FALLENSTAR","GIANT","PIXEL","IRONMAN","40MVISITS","INDIA",
+}
+
+-- ============================================================
+-- TIMING
+-- ============================================================
+local T = {
+    claim_delay  = 0.01,
+    open_box     = 0.01,
+    loop_rest    = 0.01,
+}
+
+-- ============================================================
+-- STATE & THREADS
+-- ============================================================
+local State = {
+    all_box   = false,
+    minimized = false,
+}
+local Threads = {}
+
+-- ============================================================
+-- ACTIONS
+-- ============================================================
+
+local function doClaim(boxName)
+    pcall(function()
+        RS:WaitForChild("ServerMsg"):WaitForChild("Code"):InvokeServer(boxName)
+    end)
+end
+
+local function doOpen(boxName, repeatCount)
+    local id = BOX_IDS[boxName]
+    if not id or id == 0 then return end
+    local count = repeatCount or 1
+    for i = 1, count do
+        pcall(function()
+            RS:WaitForChild("Msg"):WaitForChild("RemoteFunction"):InvokeServer("OpenSouvenirBox", id)
+        end)
+        task.wait(T.open_box)
+    end
+end
+
+-- ============================================================
+-- LOOP ENGINE
+-- ============================================================
+
+local function runBoxLoop(key, boxes)
+    State[key] = true
+    Threads[key] = task.spawn(function()
+        while State[key] do
+            for _, box in ipairs(boxes) do
+                if not State[key] then break end
+                doClaim(box)
+                task.wait(T.claim_delay)
+            end
+            for _, box in ipairs(boxes) do
+                if not State[key] then break end
+                local repeatCount = BOX_REPEAT[box] or 1
+                doOpen(box, repeatCount)
+            end
+            if State[key] then task.wait(T.loop_rest) end
+        end
+    end)
+end
+
+local function stopLoop(key)
+    State[key] = false
+    if Threads[key] then
+        pcall(task.cancel, Threads[key])
+        Threads[key] = nil
+    end
+end
+
+-- ============================================================
+-- WARNA NEON / GLOW
+-- ============================================================
+local C = {
+    bg          = Color3.fromRGB(7,  7,  18),
+    bgPanel     = Color3.fromRGB(12, 12, 28),
+    bgHeader    = Color3.fromRGB(6,  6,  16),
+    bgTitlebar  = Color3.fromRGB(4,  4,  12),
+    border      = Color3.fromRGB(40, 40, 90),
+    neonBlue    = Color3.fromRGB(80, 120, 255),
+    neonPurple  = Color3.fromRGB(160, 60, 255),
+    neonPink    = Color3.fromRGB(255, 60, 200),
+    neonGreen   = Color3.fromRGB(50, 255, 160),
+    neonCyan    = Color3.fromRGB(40, 220, 255),
+    neonYellow  = Color3.fromRGB(255, 220, 40),
+    neonOrange  = Color3.fromRGB(255, 140, 40),
+    textMain    = Color3.fromRGB(220, 220, 255),
+    textMuted   = Color3.fromRGB(90,  90, 150),
+    offKnob     = Color3.fromRGB(55, 55, 100),
+    trackOff    = Color3.fromRGB(18, 18, 40),
+    trackBox    = Color3.fromRGB(30, 55, 80),
+    btnBg       = Color3.fromRGB(18, 18, 42),
+    btnHov      = Color3.fromRGB(35, 35, 75),
+    closeHov    = Color3.fromRGB(110, 12, 12),
+    dot1        = Color3.fromRGB(255, 60, 150),
+    dot2        = Color3.fromRGB(50, 255, 160),
+    dot3        = Color3.fromRGB(255, 140, 40),
+    hayuGold    = Color3.fromRGB(255, 200, 50),
+    hayuGold2   = Color3.fromRGB(255, 160, 30),
+}
+
+-- ============================================================
+-- HAPUS DUPLIKAT & BUAT SCREENGUI → CoreGui
+-- ============================================================
+local old = CoreGui:FindFirstChild("BoxAutoGUI_HAYU")
+if old then old:Destroy() end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = "BoxAutoGUI_HAYU"
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.DisplayOrder   = 9999
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent         = CoreGui
+
+-- ============================================================
+-- KONSTANTA UKURAN
+-- ============================================================
+local WIN_W  = 237
+local FULL_H = 185
+local MINI_H = 42
+local PILL_W = 38
+local PILL_H = 38
+
+-- ============================================================
+-- SHADOW
+-- ============================================================
+local Shadow = Instance.new("Frame")
+Shadow.Size             = UDim2.new(0, WIN_W + 6, 0, FULL_H + 6)
+Shadow.BackgroundColor3 = Color3.fromRGB(0,0,0)
+Shadow.BackgroundTransparency = 0.5
+Shadow.BorderSizePixel  = 0
+Shadow.ZIndex           = 9
+Shadow.Parent           = ScreenGui
+local ShadowCorner = Instance.new("UICorner")
+ShadowCorner.CornerRadius = UDim.new(0, 13)
+ShadowCorner.Parent       = Shadow
+
+-- ============================================================
+-- MAIN FRAME
+-- ============================================================
+local Main = Instance.new("Frame")
+Main.Name             = "Main"
+Main.Size             = UDim2.new(0, WIN_W, 0, FULL_H)
+Main.Position         = UDim2.new(0.5, -WIN_W/2, 0.5, -FULL_H/2)
+Main.BackgroundColor3 = C.bg
+Main.BorderSizePixel  = 0
+Main.ClipsDescendants = true
+Main.Active           = true
+Main.ZIndex           = 10
+Main.Parent           = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent       = Main
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color     = C.neonBlue
+MainStroke.Thickness = 1.8
+MainStroke.Parent    = Main
+
+local function syncShadow()
+    Shadow.Position = UDim2.new(
+        0, Main.Position.X.Offset - 3,
+        0, Main.Position.Y.Offset - 3
+    )
+end
+
+-- ============================================================
+-- TOP BRAND BAR
+-- ============================================================
+local BrandBar = Instance.new("Frame")
+BrandBar.Name             = "BrandBar"
+BrandBar.Size             = UDim2.new(1, 0, 0, 22)
+BrandBar.BackgroundColor3 = C.bgTitlebar
+BrandBar.BorderSizePixel  = 0
+BrandBar.ZIndex           = 14
+BrandBar.Parent           = Main
+
+local BrandGrad = Instance.new("UIGradient")
+BrandGrad.Color    = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(20,  8,  40)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(40, 10,  80)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(20,  8,  40)),
+})
+BrandGrad.Rotation = 90
+BrandGrad.Parent   = BrandBar
+
+local BrandCorner = Instance.new("UICorner")
+BrandCorner.CornerRadius = UDim.new(0, 10)
+BrandCorner.Parent       = BrandBar
+
+local BrandFix = Instance.new("Frame")
+BrandFix.Size             = UDim2.new(1, 0, 0, 10)
+BrandFix.Position         = UDim2.new(0, 0, 1, -10)
+BrandFix.BackgroundColor3 = C.bgTitlebar
+BrandFix.BorderSizePixel  = 0
+BrandFix.ZIndex           = 14
+BrandFix.Parent           = BrandBar
+
+local BrandLabel = Instance.new("TextLabel")
+BrandLabel.Size               = UDim2.new(1, 0, 1, 0)
+BrandLabel.BackgroundTransparency = 1
+BrandLabel.Text               = "⚡  HAYU Store  ⚡"
+BrandLabel.TextColor3         = C.hayuGold
+BrandLabel.Font               = Enum.Font.GothamBold
+BrandLabel.TextSize           = 9
+BrandLabel.ZIndex             = 15
+BrandLabel.Parent             = BrandBar
+
+local BrandLine = Instance.new("Frame")
+BrandLine.Size             = UDim2.new(1, 0, 0, 1)
+BrandLine.Position         = UDim2.new(0, 0, 1, -1)
+BrandLine.BackgroundColor3 = C.hayuGold2
+BrandLine.BorderSizePixel  = 0
+BrandLine.ZIndex           = 15
+BrandLine.Parent           = BrandBar
+
+-- ============================================================
+-- TITLEBAR
+-- ============================================================
+local TitleBar = Instance.new("Frame")
+TitleBar.Name             = "TitleBar"
+TitleBar.Size             = UDim2.new(1, 0, 0, MINI_H)
+TitleBar.Position         = UDim2.new(0, 0, 0, 22)
+TitleBar.BackgroundColor3 = C.bgTitlebar
+TitleBar.BorderSizePixel  = 0
+TitleBar.ZIndex           = 13
+TitleBar.Parent           = Main
+
+local TitleGrad = Instance.new("UIGradient")
+TitleGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(8,  8, 30)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(15,10, 45)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(8,  8, 30)),
+})
+TitleGrad.Rotation = 90
+TitleGrad.Parent   = TitleBar
+
+local TBarLine = Instance.new("Frame")
+TBarLine.Size             = UDim2.new(1, 0, 0, 1)
+TBarLine.Position         = UDim2.new(0, 0, 1, -1)
+TBarLine.BackgroundColor3 = C.neonPurple
+TBarLine.BorderSizePixel  = 0
+TBarLine.ZIndex           = 14
+TBarLine.Parent           = TitleBar
+
+local TitleIcon = Instance.new("TextLabel")
+TitleIcon.Size               = UDim2.new(0, 22, 1, 0)
+TitleIcon.Position           = UDim2.new(0, 10, 0, 0)
+TitleIcon.BackgroundTransparency = 1
+TitleIcon.Text               = "◆"
+TitleIcon.TextColor3         = C.neonCyan
+TitleIcon.Font               = Enum.Font.GothamBold
+TitleIcon.TextSize           = 13
+TitleIcon.ZIndex             = 14
+TitleIcon.Parent             = TitleBar
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size               = UDim2.new(0, 200, 1, 0)
+TitleLabel.Position           = UDim2.new(0, 36, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text               = "BOX AUTO  v3.6"
+TitleLabel.TextColor3         = C.neonCyan
+TitleLabel.Font               = Enum.Font.GothamBold
+TitleLabel.TextSize           = 10
+TitleLabel.TextXAlignment     = Enum.TextXAlignment.Left
+TitleLabel.ZIndex             = 14
+TitleLabel.Parent             = TitleBar
+
+local function makeTBtn(text, offsetRight)
+    local btn = Instance.new("TextButton")
+    btn.Size             = UDim2.new(0, 26, 0, 20)
+    btn.Position         = UDim2.new(1, offsetRight, 0.5, -10)
+    btn.BackgroundColor3 = C.btnBg
+    btn.Text             = text
+    btn.TextColor3       = C.textMuted
+    btn.Font             = Enum.Font.GothamBold
+    btn.TextSize         = 12
+    btn.BorderSizePixel  = 0
+    btn.ZIndex           = 14
+    btn.Parent           = TitleBar
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+    local s = Instance.new("UIStroke", btn)
+    s.Color = C.border; s.Thickness = 1
+    return btn
+end
+
+local BtnMin   = makeTBtn("—", -92)
+local BtnHide  = makeTBtn("▽", -62)
+local BtnClose = makeTBtn("✕", -32)
+
+-- ============================================================
+-- BODY
+-- ============================================================
+local BODY_OFFSET = 22 + MINI_H
+
+local Body = Instance.new("Frame")
+Body.Name               = "Body"
+Body.Size               = UDim2.new(1, 0, 1, -BODY_OFFSET)
+Body.Position           = UDim2.new(0, 0, 0, BODY_OFFSET)
+Body.BackgroundTransparency = 1
+Body.ZIndex             = 11
+Body.Parent             = Main
+
+local BodyList = Instance.new("UIListLayout")
+BodyList.Padding             = UDim.new(0, 8)
+BodyList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+BodyList.SortOrder           = Enum.SortOrder.LayoutOrder
+BodyList.Parent              = Body
+
+local BodyPad = Instance.new("UIPadding")
+BodyPad.PaddingTop    = UDim.new(0, 6)
+BodyPad.PaddingBottom = UDim.new(0, 6)
+BodyPad.PaddingLeft   = UDim.new(0, 10)
+BodyPad.PaddingRight  = UDim.new(0, 10)
+BodyPad.Parent        = Body
+
+-- ============================================================
+-- HELPER: Toggle neon
+-- ============================================================
+local function makeToggle(label, colorType, layoutOrder, parentContent)
+    local Row = Instance.new("Frame")
+    Row.Size               = UDim2.new(1, 0, 0, 24)
+    Row.BackgroundTransparency = 1
+    Row.LayoutOrder        = layoutOrder
+    Row.ZIndex             = 14
+    Row.Parent             = parentContent
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size               = UDim2.new(0.6, 0, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text               = label
+    lbl.TextColor3         = C.textMuted
+    lbl.Font               = Enum.Font.GothamBold
+    lbl.TextSize           = 12
+    lbl.TextXAlignment     = Enum.TextXAlignment.Left
+    lbl.ZIndex             = 15
+    lbl.Parent             = Row
+
+    local status = Instance.new("TextLabel")
+    status.Size               = UDim2.new(0, 36, 1, 0)
+    status.Position           = UDim2.new(1, -84, 0, 0)
+    status.BackgroundTransparency = 1
+    status.Text               = "OFF"
+    status.TextColor3         = C.offKnob
+    status.Font               = Enum.Font.GothamBold
+    status.TextSize           = 11
+    status.TextXAlignment     = Enum.TextXAlignment.Right
+    status.ZIndex             = 15
+    status.Parent             = Row
+
+    local track = Instance.new("TextButton")
+    track.Size             = UDim2.new(0, 48, 0, 24)
+    track.Position         = UDim2.new(1, -50, 0.5, -12)
+    track.BackgroundColor3 = C.trackOff
+    track.Text             = ""
+    track.BorderSizePixel  = 0
+    track.ZIndex           = 15
+    track.Parent           = Row
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+    local ts = Instance.new("UIStroke", track)
+    ts.Color = C.border; ts.Thickness = 1
+
+    local knob = Instance.new("Frame")
+    knob.Size             = UDim2.new(0, 18, 0, 18)
+    knob.Position         = UDim2.new(0, 3, 0.5, -9)
+    knob.BackgroundColor3 = C.offKnob
+    knob.BorderSizePixel  = 0
+    knob.ZIndex           = 16
+    knob.Parent           = track
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local tw     = TweenInfo.new(0.15, Enum.EasingStyle.Quad)
+    local onCol  = colorType == "box" and C.neonCyan or C.neonGreen
+    local onTrk  = colorType == "box" and C.trackBox or Color3.fromRGB(8, 55, 40)
+    local isOn   = false
+
+    local function set(val)
+        isOn = val
+        if val then
+            TweenService:Create(track, tw, {BackgroundColor3 = onTrk}):Play()
+            TweenService:Create(knob,  tw, {
+                Position         = UDim2.new(0, 27, 0.5, -9),
+                BackgroundColor3 = onCol,
+            }):Play()
+            local ks = knob:FindFirstChildOfClass("UIStroke")
+            if not ks then ks = Instance.new("UIStroke", knob) end
+            ks.Color = onCol; ks.Thickness = 1.5
+            ts.Color = onCol
+            status.Text       = "ON"
+            status.TextColor3 = onCol
+            lbl.TextColor3    = C.textMain
+        else
+            TweenService:Create(track, tw, {BackgroundColor3 = C.trackOff}):Play()
+            TweenService:Create(knob,  tw, {
+                Position         = UDim2.new(0, 3, 0.5, -9),
+                BackgroundColor3 = C.offKnob,
+            }):Play()
+            local ks = knob:FindFirstChildOfClass("UIStroke")
+            if ks then ks:Destroy() end
+            ts.Color          = C.border
+            status.Text       = "OFF"
+            status.TextColor3 = C.offKnob
+            lbl.TextColor3    = C.textMuted
+        end
+    end
+
+    return track, set, function() return isOn end
+end
+
+-- ============================================================
+-- BUILD PANEL ALL BOXES
+-- ============================================================
+local Panel = Instance.new("Frame")
+Panel.Name             = "BoxPanel"
+Panel.Size             = UDim2.new(1, 0, 0, 90)
+Panel.BackgroundColor3 = C.bgPanel
+Panel.BorderSizePixel  = 0
+Panel.LayoutOrder      = 1
+Panel.ZIndex           = 12
+Panel.Parent           = Body
+Instance.new("UICorner", Panel).CornerRadius = UDim.new(0, 8)
+
+local PStroke = Instance.new("UIStroke", Panel)
+PStroke.Color = C.neonBlue; PStroke.Thickness = 1.2
+
+local PH = Instance.new("Frame")
+PH.Size             = UDim2.new(1, 0, 0, 32)
+PH.BackgroundColor3 = C.bgHeader
+PH.BorderSizePixel  = 0
+PH.ZIndex           = 13
+PH.Parent           = Panel
+Instance.new("UICorner", PH).CornerRadius = UDim.new(0, 8)
+
+local PHFix = Instance.new("Frame")
+PHFix.Size             = UDim2.new(1, 0, 0, 8)
+PHFix.Position         = UDim2.new(0, 0, 1, -8)
+PHFix.BackgroundColor3 = C.bgHeader
+PHFix.BorderSizePixel  = 0
+PHFix.ZIndex           = 13
+PHFix.Parent           = PH
+
+local PHGrad = Instance.new("UIGradient")
+PHGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(6, 4, 18)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(14, 8, 35)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(6, 4, 18)),
+})
+PHGrad.Rotation = 90
+PHGrad.Parent   = PH
+
+local PHDot = Instance.new("Frame")
+PHDot.Size             = UDim2.new(0, 9, 0, 9)
+PHDot.Position         = UDim2.new(0, 12, 0.5, -4.5)
+PHDot.BackgroundColor3 = C.neonCyan
+PHDot.BorderSizePixel  = 0
+PHDot.ZIndex           = 14
+PHDot.Parent           = PH
+Instance.new("UICorner", PHDot).CornerRadius = UDim.new(1, 0)
+local PHDotS = Instance.new("UIStroke", PHDot)
+PHDotS.Color = C.neonCyan; PHDotS.Thickness = 1.5
+
+local PHTitle = Instance.new("TextLabel")
+PHTitle.Size               = UDim2.new(1, -30, 1, 0)
+PHTitle.Position           = UDim2.new(0, 28, 0, 0)
+PHTitle.BackgroundTransparency = 1
+PHTitle.Text               = "ALL BOXES"
+PHTitle.TextColor3         = C.neonBlue
+PHTitle.Font               = Enum.Font.GothamBold
+PHTitle.TextSize           = 12
+PHTitle.TextXAlignment     = Enum.TextXAlignment.Left
+PHTitle.ZIndex             = 14
+PHTitle.Parent             = PH
+
+local PDiv = Instance.new("Frame")
+PDiv.Size             = UDim2.new(1, 0, 0, 1)
+PDiv.Position         = UDim2.new(0, 0, 0, 32)
+PDiv.BackgroundColor3 = C.neonBlue
+PDiv.BackgroundTransparency = 0.6
+PDiv.BorderSizePixel  = 0
+PDiv.ZIndex           = 13
+PDiv.Parent           = Panel
+
+local Content = Instance.new("Frame")
+Content.Name               = "Content"
+Content.Size               = UDim2.new(1, 0, 1, -34)
+Content.Position           = UDim2.new(0, 0, 0, 34)
+Content.BackgroundTransparency = 1
+Content.ZIndex             = 13
+Content.Parent             = Panel
+
+local CL = Instance.new("UIListLayout")
+CL.Padding             = UDim.new(0, 8)
+CL.HorizontalAlignment = Enum.HorizontalAlignment.Center
+CL.SortOrder           = Enum.SortOrder.LayoutOrder
+CL.Parent              = Content
+
+local CP = Instance.new("UIPadding")
+CP.PaddingTop   = UDim.new(0, 6)
+CP.PaddingLeft  = UDim.new(0, 14)
+CP.PaddingRight = UDim.new(0, 14)
+CP.Parent       = Content
+
+-- Toggle utama: AUTO BOX
+local TBox, setBox, getBox = makeToggle("AUTO CLAIM + OPEN", "box", 1, Content)
+
+TBox.MouseButton1Click:Connect(function()
+    local v = not getBox()
+    setBox(v)
+    if v then
+        runBoxLoop("all_box", ALL_BOXES)
+    else
+        stopLoop("all_box")
+    end
+end)
+
+-- ============================================================
+-- STATUS / INFO BAR
+-- ============================================================
+local InfoBar = Instance.new("Frame")
+InfoBar.Size             = UDim2.new(1, -20, 0, 18)
+InfoBar.Position         = UDim2.new(0, 10, 1, -24)
+InfoBar.BackgroundColor3 = Color3.fromRGB(8, 5, 20)
+InfoBar.BorderSizePixel  = 0
+InfoBar.ZIndex           = 12
+InfoBar.Parent           = Main
+Instance.new("UICorner", InfoBar).CornerRadius = UDim.new(0, 4)
+
+local InfoGrad = Instance.new("UIGradient")
+InfoGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(10, 4, 30)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 8, 50)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(10, 4, 30)),
+})
+InfoGrad.Rotation = 90
+InfoGrad.Parent   = InfoBar
+
+local InfoText = Instance.new("TextLabel")
+InfoText.Size               = UDim2.new(1, -10, 1, 0)
+InfoText.Position           = UDim2.new(0, 5, 0, 0)
+InfoText.BackgroundTransparency = 1
+InfoText.Text               = "⚡ v3.6  •  AUTO BOX by HAYU Store"
+InfoText.TextColor3         = Color3.fromRGB(80, 60, 130)
+InfoText.Font               = Enum.Font.Gotham
+InfoText.TextSize           = 9
+InfoText.TextXAlignment     = Enum.TextXAlignment.Left
+InfoText.ZIndex             = 13
+InfoText.Parent             = InfoBar
+
+-- ============================================================
+-- TITLEBAR BUTTON ACTIONS
+-- ============================================================
+local tw25 = TweenInfo.new(0.22, Enum.EasingStyle.Quad)
+
+BtnMin.MouseButton1Click:Connect(function()
+    State.minimized = not State.minimized
+    if State.minimized then
+        TweenService:Create(Main, tw25, {
+            Size = UDim2.new(0, WIN_W, 0, 22 + MINI_H)
+        }):Play()
+        TweenService:Create(Shadow, TweenInfo.new(0.15), {
+            BackgroundTransparency = 1
+        }):Play()
+        BtnMin.Text = "▲"
+    else
+        TweenService:Create(Main, tw25, {
+            Size = UDim2.new(0, WIN_W, 0, FULL_H)
+        }):Play()
+        TweenService:Create(Shadow, TweenInfo.new(0.15), {
+            BackgroundTransparency = 0.6
+        }):Play()
+        BtnMin.Text = "—"
+    end
+end)
+
+-- ============================================================
+-- HIDE BUTTON
+-- ============================================================
+local bodyVis = true
+
+BtnHide.MouseButton1Click:Connect(function()
+    bodyVis = not bodyVis
+    if not bodyVis then
+        State._savedPos = Main.Position
+        Body.Visible     = false
+        BrandBar.Visible = false
+        InfoBar.Visible  = false
+        TweenService:Create(Main, tw25, {
+            Size     = UDim2.new(0, PILL_W, 0, PILL_H),
+            Position = UDim2.new(1, -(PILL_W + 8), 0.5, -(PILL_H / 2))
+        }):Play()
+        TweenService:Create(Shadow, TweenInfo.new(0.15), {
+            BackgroundTransparency = 1
+        }):Play()
+        TitleBar.Size     = UDim2.new(1, 0, 1, 0)
+        TitleBar.Position = UDim2.new(0, 0, 0, 0)
+        TitleIcon.Visible = false
+        TitleLabel.Visible = false
+        TBarLine.Visible  = false
+        BtnHide.Text      = "📦"
+        BtnHide.TextSize  = 18
+        BtnHide.Size      = UDim2.new(1, 0, 1, 0)
+        BtnHide.Position  = UDim2.new(0, 0, 0, 0)
+        BtnHide.TextColor3 = C.neonCyan
+        BtnMin.Visible   = false
+        BtnClose.Visible = false
+    else
+        Body.Visible     = true
+        BrandBar.Visible = true
+        InfoBar.Visible  = true
+        TitleIcon.Visible = true
+        TitleLabel.Visible = true
+        TBarLine.Visible  = true
+        BtnMin.Visible   = true
+        BtnClose.Visible = true
+        TitleBar.Size     = UDim2.new(1, 0, 0, MINI_H)
+        TitleBar.Position = UDim2.new(0, 0, 0, 22)
+        BtnHide.Text      = "▽"
+        BtnHide.TextSize  = 12
+        BtnHide.Size      = UDim2.new(0, 26, 0, 20)
+        BtnHide.Position  = UDim2.new(1, -62, 0.5, -10)
+        BtnHide.TextColor3 = C.textMuted
+        local savedPos = State._savedPos or UDim2.new(0.5, -WIN_W/2, 0.5, -FULL_H/2)
+        TweenService:Create(Main, tw25, {
+            Size     = UDim2.new(0, WIN_W, 0, FULL_H),
+            Position = savedPos
+        }):Play()
+        TweenService:Create(Shadow, TweenInfo.new(0.15), {
+            BackgroundTransparency = 0.6
+        }):Play()
+    end
+end)
+
+BtnClose.MouseButton1Click:Connect(function()
+    for k in pairs(Threads) do stopLoop(k) end
+    local ox = Main.Position.X.Offset
+    local oy = Main.Position.Y.Offset
+    TweenService:Create(Main, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+        Size     = UDim2.new(0, 0, 0, 0),
+        Position = UDim2.new(0, ox + WIN_W/2, 0, oy + FULL_H/2)
+    }):Play()
+    TweenService:Create(Shadow, TweenInfo.new(0.25), {
+        BackgroundTransparency = 1
+    }):Play()
+    task.delay(0.3, function() ScreenGui:Destroy() end)
+end)
+
+local function addHover(btn, norm, hov)
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = hov}):Play()
+        btn.TextColor3 = C.textMain
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = norm}):Play()
+        btn.TextColor3 = C.textMuted
+    end)
+end
+addHover(BtnMin,   C.btnBg, C.btnHov)
+addHover(BtnHide,  C.btnBg, C.btnHov)
+addHover(BtnClose, C.btnBg, C.closeHov)
+
+-- ============================================================
+-- DRAG
+-- ============================================================
+do
+    local dragging, dragStart, startPos = false, nil, nil
+    Main.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            dragStart = inp.Position
+            startPos  = Main.Position
+        end
+    end)
+    Main.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(inp)
+        if dragging and (
+            inp.UserInputType == Enum.UserInputType.MouseMovement or
+            inp.UserInputType == Enum.UserInputType.Touch
+        ) then
+            local d = inp.Position - dragStart
+            local nx = startPos.X.Offset + d.X
+            local ny = startPos.Y.Offset + d.Y
+            Main.Position   = UDim2.new(0, nx, 0, ny)
+            Shadow.Position = UDim2.new(0, nx - 3, 0, ny - 3)
+        end
+    end)
+end
+
+-- ============================================================
+-- RESIZE
+-- ============================================================
+do
+    local SCALE_STEP = 0.15
+    local MIN_SCALE  = 0.4
+    local MAX_SCALE  = 2
+    local curScale   = 1
+
+    local function makeSBtn(text, offsetRight)
+        local btn = Instance.new("TextButton")
+        btn.Size             = UDim2.new(0, 22, 0, 20)
+        btn.Position         = UDim2.new(1, offsetRight, 0.5, -10)
+        btn.BackgroundColor3 = C.btnBg
+        btn.Text             = text
+        btn.TextColor3       = C.textMuted
+        btn.Font             = Enum.Font.GothamBold
+        btn.TextSize         = 13
+        btn.BorderSizePixel  = 0
+        btn.ZIndex           = 14
+        btn.Parent           = TitleBar
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+        local s = Instance.new("UIStroke", btn)
+        s.Color = C.border; s.Thickness = 1
+        return btn
+    end
+
+    local BtnShrink = makeSBtn("−", -170)
+    local BtnGrow   = makeSBtn("+", -146)
+
+    local function applyScale(newScale)
+        newScale = math.clamp(newScale, MIN_SCALE, MAX_SCALE)
+        curScale = newScale
+        local nw = math.floor(WIN_W * curScale)
+        local nh = math.floor(FULL_H * curScale)
+        TweenService:Create(Main, TweenInfo.new(0.18, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, nw, 0, nh)
+        }):Play()
+        task.delay(0.2, syncShadow)
+    end
+
+    BtnShrink.MouseButton1Click:Connect(function()
+        applyScale(curScale - SCALE_STEP)
+    end)
+    BtnGrow.MouseButton1Click:Connect(function()
+        applyScale(curScale + SCALE_STEP)
+    end)
+
+    addHover(BtnShrink, C.btnBg, C.btnHov)
+    addHover(BtnGrow,   C.btnBg, C.btnHov)
+end
+
+-- ============================================================
+-- ANIMASI MASUK + NEON PULSE
+-- ============================================================
+local VP        = workspace.CurrentCamera.ViewportSize
+local sx        = math.floor(VP.X / 2 - WIN_W / 2)
+local sy        = math.floor(VP.Y / 2 - FULL_H / 2)
+
+Main.Size     = UDim2.new(0, 0, 0, 0)
+Main.Position = UDim2.new(0, sx + WIN_W/2, 0, sy + FULL_H/2)
+Shadow.Size   = UDim2.new(0, 0, 0, 0)
+Shadow.BackgroundTransparency = 1
+
+TweenService:Create(Main, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Size     = UDim2.new(0, WIN_W, 0, FULL_H),
+    Position = UDim2.new(0, sx, 0, sy)
+}):Play()
+task.delay(0.1, function()
+    TweenService:Create(Shadow, TweenInfo.new(0.4), {
+        Size                   = UDim2.new(0, WIN_W + 6, 0, FULL_H + 6),
+        Position               = UDim2.new(0, sx - 3, 0, sy - 3),
+        BackgroundTransparency = 0.6
+    }):Play()
+end)
+
+task.spawn(function()
+    local colors = {C.neonBlue, C.neonPurple, C.neonCyan, C.neonOrange, C.neonBlue}
+    local i = 1
+    while ScreenGui and ScreenGui.Parent do
+        local next_i = (i % #colors) + 1
+        TweenService:Create(MainStroke, TweenInfo.new(2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+            Color = colors[next_i]
+        }):Play()
+        i = next_i
+        task.wait(2)
+    end
+end)
